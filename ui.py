@@ -2,8 +2,6 @@ import pygame
 from player import *
 from sound import *
 
-#여기에서는 체력 이미지, 학점(숫자), 일시정지, 사운드 on&off, 일시정지 버튼을 맵에 나타내는 것을 적용하고자 함
-
 class UI:
     def __init__(self, screen_width, screen_height):
         self.font = pygame.font.Font("DNFBitBitTTF.ttf", 30)

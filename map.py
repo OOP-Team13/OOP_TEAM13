@@ -1,16 +1,21 @@
 import pygame
 from player import *
-from object import create_random_items
+from object import *
 
-class Map:
-    def __init__(self, window_W, window_H, font_path="DNFBitBitTTF.ttf", map_duration_ms=20000):
+class MapManager:
+    def __init__(self, window_W, window_H, player, ending_ui):
         self.window_W = window_W
         self.window_H = window_H
-        self.duration = map_duration_ms
+        self.duration = 20000
 
-        self.font = pygame.font.Font(font_path, 40)
-        self.font_big = pygame.font.Font(font_path, 80)
 
+        self.items = []
+        self.item_speed = 7
+        self.player = player
+
+        self.ending_ui = ending_ui
+
+        # 이미지 로드
         self.images = {
             "main_building": self._load("image/main_building.png"),
             "library": self._load("image/library.png"),
@@ -23,145 +28,74 @@ class Map:
         }
 
         self.current_stage = "main_building"
-        self.stage_start_ticks = None
-        self.state = "playing"  # 실제 표시 상태
-        self.pending_ending_state = None  # 페이드 후 적용될 엔딩 상태
+        self.state = "playing"
+        self.pending_ending_state = None 
 
         self.bonus_duration = 10000
-        self.student_elapsed_before_bonus = 0
-        self.entered_bonus = False
-
+        
         from ending import Ending
         self.ending_ui = Ending(window_W, window_H)
-
-        self.items = []
-        self.item_speed = 7
-
-        # 🔥 페이드아웃 변수
+        
+        # 초기 상태 설정
+        self.state_object = MainBuildingState(self) 
+        
         self.fade_alpha = 0
         self.is_fading = False
-
-    def spawn_stage_items(self, stage_name, player):
-        self.items = create_random_items(30, self.item_speed, self.window_W, self.window_H, stage_name, player)
 
     def _load(self, img_path):
         return pygame.image.load(img_path).convert_alpha()
 
-    def reset(self):
-        self.current_stage = "main_building"
-        self.stage_start_ticks = None
-        self.state = "playing"
-        self.pending_ending_state = None
-        self.entered_bonus = False
+    def spawn_stage_items(self, stage_name, player):
+        items = StageItem()
+        self.items = items.create_items(30, self.item_speed, self.window_W, self.window_H, stage_name, player)
+
+    # 상태 변경 시 current_stage 문자열도 변경됨
+    def change_state(self, new_state_object):
+        self.state_object = new_state_object
+        self.current_stage = new_state_object.name 
+
+    def trigger_fade_out(self, ending_key):
+        self.pending_ending_state = ending_key
+        self.is_fading = True
         self.fade_alpha = 0
-        self.is_fading = False
 
-    # ===================== UPDATE =====================
-    def update(self, player):
-        if self.state != "playing":
-            return
-
-        # HP 0 → 도미토리 엔딩
+    def update(self, player, paused_time):
+        if self.is_fading or not self.is_playing:
+            return 
+        
         if player.hp <= 0:
             self.ending_ui.update_best_grade(player.grade)
-            self.pending_ending_state = "ending_dorm"   # 실제 엔딩은 페이드 후 적용
-            self.is_fading = True
-            self.fade_alpha = 0
+            self.trigger_fade_out("ending_dorm")
             return
+            
+        if self.state == "playing":
+            self.state_object.update(player, paused_time)
 
-        now = pygame.time.get_ticks()
-        if self.stage_start_ticks is None:
-            self.stage_start_ticks = now
-
-        elapsed = now - self.stage_start_ticks
-
-        # ---------------- 백년관 ----------------
-        if self.current_stage == "main_building":
-            if elapsed >= self.duration:
-                self.current_stage = "library"
-                self.stage_start_ticks = now
-                self.spawn_stage_items("library", player)
-
-        # ---------------- 도서관 ----------------
-        elif self.current_stage == "library":
-            if elapsed >= self.duration:
-                self.current_stage = "student_hall"
-                self.stage_start_ticks = now
-                self.spawn_stage_items("student_hall", player)
-
-        # ---------------- 학생회관 ----------------
-        elif self.current_stage == "student_hall":
-            if player.have_B and player.have_O_lib and player.have_O_stu and not self.entered_bonus:
-
-                self.student_elapsed_before_bonus = elapsed
-                self.current_stage = "bonus"
-                self.stage_start_ticks = now
-                self.entered_bonus = True
-
-                player.set_fly_mode()
-                self.spawn_stage_items("bonus", player)
-
-            elif elapsed >= self.duration:
-
-                self.ending_ui.update_best_grade(player.grade)
-
-                if player.grade <= 2.50:
-                    self.pending_ending_state = "ending_retry"
-                    self.is_fading = True
-                    self.fade_alpha = 0
-                else:
-                    self.current_stage = "liberal_arts_building"
-                    self.stage_start_ticks = now
-                    player.set_boo_mode()
-                    self.spawn_stage_items("liberal_arts_building", player)
-
-        # ---------------- 명수당 ----------------
-        elif self.current_stage == "bonus":
-            if elapsed >= self.bonus_duration:
-                player.set_boo_mode()
-                self.current_stage = "student_hall"
-                self.stage_start_ticks = pygame.time.get_ticks() - self.student_elapsed_before_bonus
-                self.spawn_stage_items("student_hall", player)
-
-        # ---------------- 교양관 ----------------
-        elif self.current_stage == "liberal_arts_building":
-            if elapsed >= self.duration:
-                self.ending_ui.update_best_grade(player.grade)
-                self.pending_ending_state = "ending_classroom"
-                self.is_fading = True
-                self.fade_alpha = 0
-
-    # ===================== DRAW =====================
     def draw(self, screen, player):
-
-        # 페이드 중에는 무조건 '현재 게임 화면' 유지
+        # 1. 페이드 중일 때
         if self.is_fading:
-            # 게임 화면 그리기
+            # 페이드 중에는 현재 멈춘 화면(current_stage)을 그림
             screen.blit(self.images[self.current_stage], (0, 0))
 
-            # 페이드 레이어
             fade_surface = pygame.Surface((self.window_W, self.window_H))
             fade_surface.fill((0, 0, 0))
             fade_surface.set_alpha(self.fade_alpha)
             screen.blit(fade_surface, (0, 0))
 
-            # 알파 증가
             if self.fade_alpha < 255:
                 self.fade_alpha += 8
             else:
                 self.is_fading = False
-                # 이제 실제 엔딩 상태 적용
+                # 실제 엔딩 상태로 전환
                 if self.pending_ending_state:
                     self.state = self.pending_ending_state
                     self.pending_ending_state = None
 
-            return  # 엔딩 화면 출력 금지
+        # 2. 게임 플레이 중일 때
+        elif self.state == "playing":
+            self.state_object.draw(screen)
 
-        # ====== 페이드가 끝난 후 엔딩 화면 출력 ======
-
-        if self.state == "playing":
-            screen.blit(self.images[self.current_stage], (0, 0))
-
+        # 3. 엔딩 화면일 때
         elif self.state == "ending_retry":
             self.ending_ui.ending_retry(screen, player.grade)
 
@@ -178,3 +112,116 @@ class Map:
     @property
     def is_finished(self):
         return self.state != "playing"
+
+class MapState:
+    def __init__(self, game_map):
+        self.game_map = game_map
+        self.start_ticks = None
+        self.name = "main_building"
+
+        self.paused_time = 0
+        self.pause_start_time = 0
+        self.is_paused = False
+
+    def update(self, player, paused_time):
+        pass
+
+    def draw(self, screen):
+        screen.blit(self.game_map.images[self.name], (0, 0))
+
+class MainBuildingState(MapState):
+    def __init__(self, game_map):
+        super().__init__(game_map)
+        self.name = "main_building"
+        self.start_ticks = None
+        self.game_map.spawn_stage_items(self.name, self.game_map.player) 
+
+    def update(self, player, paused_time):
+        if self.start_ticks is None:
+            self.start_ticks = pygame.time.get_ticks() - paused_time
+
+        elapsed = pygame.time.get_ticks() - self.start_ticks - paused_time
+        
+        if elapsed >= self.game_map.duration:
+            self.game_map.change_state(LibraryState(self.game_map))
+
+class LibraryState(MapState):
+    def __init__(self, game_map):
+        super().__init__(game_map)
+        self.name = "library"
+        self.start_ticks = None
+        self.game_map.spawn_stage_items(self.name, self.game_map.player) 
+
+    def update(self, player, paused_time):
+        if self.start_ticks is None:
+            self.start_ticks = pygame.time.get_ticks() - paused_time
+
+        elapsed = pygame.time.get_ticks() - self.start_ticks - paused_time
+
+        if elapsed >= self.game_map.duration:
+            self.game_map.change_state(StudentHallState(self.game_map))
+
+class StudentHallState(MapState):
+    def __init__(self, game_map):
+        super().__init__(game_map)
+        self.name = "student_hall"
+        self.entered_bonus = False
+        self.start_ticks = None
+        self.game_map.spawn_stage_items(self.name, self.game_map.player) 
+
+    def update(self, player, paused_time):
+        if self.start_ticks is None:
+            self.start_ticks = pygame.time.get_ticks() - paused_time
+
+        elapsed = pygame.time.get_ticks() - self.start_ticks - paused_time
+
+        if player.have_B and player.have_O_lib and player.have_O_stu and not self.entered_bonus:
+            self.game_map.change_state(BonusState(self.game_map, elapsed))
+            player.set_fly_mode()
+            return
+
+        if elapsed >= self.game_map.duration:
+            player.set_boo_mode()
+            self.game_map.change_state(LiberalArtsState(self.game_map))
+
+class LiberalArtsState(MapState):
+    def __init__(self, game_map):
+        super().__init__(game_map)
+        self.name = "liberal_arts_building"
+        self.start_ticks = None 
+        self.game_map.spawn_stage_items(self.name, self.game_map.player) 
+
+    def update(self, player, paused_time):
+        if self.start_ticks is None:
+            self.start_ticks = pygame.time.get_ticks() - paused_time
+
+        elapsed = pygame.time.get_ticks() - self.start_ticks - paused_time
+
+        if elapsed >= self.game_map.duration:
+            self.game_map.ending_ui.update_best_grade(player.grade)
+            if player.grade <= 2.50:
+                self.game_map.trigger_fade_out("ending_retry")
+            else:
+                self.game_map.trigger_fade_out("ending_classroom")
+
+class BonusState(MapState):
+    def __init__(self, game_map, previous_elapsed):
+        super().__init__(game_map)
+        self.name = "bonus"
+        self.previous_elapsed = previous_elapsed
+        self.start_ticks = None
+        self.game_map.spawn_stage_items(self.name, self.game_map.player) 
+
+    def update(self, player, paused_time):
+        if self.start_ticks is None:
+            self.start_ticks = pygame.time.get_ticks() - paused_time
+
+        elapsed = pygame.time.get_ticks() - self.start_ticks - paused_time
+        
+        if elapsed >= self.game_map.bonus_duration:
+             next_state = StudentHallState(self.game_map)
+             next_state.entered_bonus = True
+             
+             self.game_map.change_state(next_state)
+
+             player.set_boo_mode()

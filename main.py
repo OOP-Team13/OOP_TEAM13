@@ -33,22 +33,26 @@ ground = window_H - 140 - 50
 player = Player(100, ground, window_W, ground)
 
 # 배경 이미지 로드
-map = Map(window_W, window_H)
+ending_ui = Ending(window_W, window_H)
+map = MapManager(window_W, window_H, player, ending_ui)
+game_ui = UI(window_W, window_H)
 menu = pygame.image.load("image/menu.png").convert_alpha()
 explain = pygame.image.load("image/explain.png").convert_alpha()
 
-# 아이템 생성
-map.spawn_stage_items("main_building", player)
-
-# UI 생성
-game_ui = UI(window_W, window_H)
+# 일시정지 관련
+start_ticks = pygame.time.get_ticks()
+total_paused_time = 0
+pause_start = 0
 is_paused = False
 
-# 시작 버튼
+game_state = "menu" # menu, explain, playing
+
+# 버튼 Rect 정의
 btn_explain = pygame.Rect(280, 460, 150, 60)
 btn_start = pygame.Rect(770, 460, 150, 60)
 btn_explain_to_start = pygame.Rect(900, 500, 180, 50)
 
+# 버튼 그리기 헬퍼 함수
 def draw_button(rect, text):
     pygame.draw.rect(screen, (255, 255, 255), rect)
     pygame.draw.rect(screen, (0, 0, 0), rect, 3)
@@ -56,24 +60,39 @@ def draw_button(rect, text):
     txt_rect = txt.get_rect(center=rect.center)
     screen.blit(txt, txt_rect)
 
-# 현재 화면 상태
-game_state = "menu"
+def restart_game():
+    global player, map, game_state, is_paused
+
+    player.reset()
+    player.set_boo_mode()
+
+    map = MapManager(window_W, window_H, player, ending_ui)
+
+    sound.play_bgm()
+    is_paused = False
+    game_state = "playing"
 
 # 메인 루프
 running = True
 while running:
-    # ================= 이벤트 처리 =================
+    # 이벤트 처리
     for event in pygame.event.get():
         if event.type == QUIT:
             running = False
 
         # UI 처리
         action = game_ui.handle_event(event, is_paused)
+
         if action == "toggle_sound":
             sound.toggle_bgm()
 
         elif action == "toggle_pause":
-            is_paused = not is_paused
+            if not is_paused:
+                is_paused = True
+                pause_start = pygame.time.get_ticks()
+            else:
+                is_paused = False
+                total_paused_time += (pygame.time.get_ticks() - pause_start)
 
         elif action == "btn_resume":
             is_paused = False
@@ -82,13 +101,7 @@ while running:
             running = False
         
         elif action == "btn_restart":
-            is_paused = False
-            player.reset()
-            player.set_boo_mode()
-            map.reset()
-            map.spawn_stage_items("main_building", player)
-            sound.play_bgm()
-            game_state = "playing"
+            restart_game()
 
         # 키보드 입력 처리
         elif event.type == KEYDOWN:
@@ -105,27 +118,19 @@ while running:
                 if btn_explain.collidepoint(mx, my):
                     game_state = "explain"
                 elif btn_start.collidepoint(mx, my):
-                    game_state = "playing"
-                    map.reset()
+                    restart_game()
 
             elif game_state == "explain":
                 if btn_explain_to_start.collidepoint(mx, my):
-                    game_state = "playing"
-                    map.reset()
+                    restart_game()
 
             elif game_state == "playing" and not map.is_playing:
-                action = map.ending_ui.check_click(event.pos)
+                action = ending_ui.check_click(event.pos)
 
                 if action == "quit":
                     running = False
-                
                 elif action == "restart":
-                    player.reset()
-                    player.set_boo_mode()
-                    map.reset()
-                    sound.play_bgm()
-                    map.spawn_stage_items("main_building", player)
-                    game_state = "playing"
+                    restart_game()
 
     # ================= 화면 그리기 =================
 
@@ -146,27 +151,26 @@ while running:
             clock.tick(FPS)
             continue
 
-        # 🔹 일시정지가 아닐 때 정상 진행
+        # 일시정지가 아닐 때 정상 진행
         if not is_paused:
-            map.update(player)
+            map.update(player, total_paused_time)
 
-            # BGM 종료
-            if not map.is_playing:
-                sound.stop_bgm()
-
-            # 플레이 중일 때만 조작 가능
             if map.is_playing:
+                # 플레이어 움직임
                 keys = pygame.key.get_pressed()
                 player.handle_input(keys)
                 player.update()
-
-                # 아이템 이동
+                
+                # 아이템 움직임 (맵에 있는 리스트를 순회)
                 for item in map.items:
                     item.update(map.item_speed)
-                    item.draw(screen)
-
-                # 충돌 체크
+                
+                # 충돌 체크 (collide.py) - item.use()가 내부에서 실행됨
                 check_collision(player, map.items, sound)
+            
+            else:
+                # 게임이 끝났으면(엔딩화면) BGM 끄기
+                sound.stop_bgm()
 
         map.draw(screen, player)
 
@@ -175,9 +179,6 @@ while running:
             player.draw(screen)
             for item in map.items:
                 item.draw(screen)
-
-        # UI 적용
-        if game_state == "playing" and map.is_playing:
             game_ui.draw(screen, player, is_paused, sound)
 
     pygame.display.update()
