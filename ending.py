@@ -16,7 +16,7 @@ class Ending:
 
         self.image_dorm = pygame.image.load("image/dormitory.png")
         self.image_classroom = pygame.image.load("image/classroom.png")
-        self.image_retry = pygame.image.load("image/retry.png")
+        self.image_retry = pygame.image.load("image/Retry.png")
 
         btn_w, btn_h = 200, 60
         center_x = width // 2
@@ -44,7 +44,6 @@ class Ending:
             with open("best_grade.txt", "w") as f:
                 f.write(str(self.best_grade))
 
-
     # 최종 학점 + 최고 학점 표시
     def draw_final_grade(self, screen, grade):
         # 최종 학점
@@ -71,20 +70,17 @@ class Ending:
         screen.blit(txt_quit, (self.rect_quit.centerx - txt_quit.get_width()//2, 
                                self.rect_quit.centery - txt_quit.get_height()//2))
         
-    def draw_common_layout(self, screen, image, grade, title_text="", sub_text=""):
-        # 배경 이미지
+    def draw_common_layout(self, screen, image, grade, title_color, sub_color, title_text="", sub_text=""):
         screen.blit(image, (0, 0))
 
-        # 엔딩 멘트 작성
         if title_text:
-            title = self.font_title.render(title_text, True, self.WHITE)
+            title = self.font_title.render(title_text, True, title_color)
             screen.blit(title, (self.width//2 - title.get_width()//2, 150))
         
         if sub_text:
-            sub = self.font_title.render(sub_text, True, self.WHITE)
+            sub = self.font_title.render(sub_text, True, sub_color)
             screen.blit(sub, (self.width//2 - sub.get_width()//2, 220))
 
-        # 학점창, 버튼 그리기
         self.draw_final_grade(screen, grade)
         self.draw_buttons(screen)
 
@@ -94,34 +90,32 @@ class Ending:
         elif self.rect_quit.collidepoint(pos):
             return "quit"
         return None
-    
-    def draw_ending(self, screen, image, grade, title_text="", sub_text=""):
-        screen.blit(image, (0, 0))
 
-        if title_text:
-            title = self.font_title.render(title_text, True, self.WHITE)
-            screen.blit(title, (self.width//2 - title.get_width()//2, 150))
-        
-        if sub_text:
-            sub = self.font_title.render(sub_text, True, self.WHITE)
-            screen.blit(sub, (self.width//2 - sub.get_width()//2, 220))
-        
-        self.draw_final_grade(screen, grade)
-        self.draw_buttons(screen)
-    
     def ending_dorm(self, screen, grade):
-        self.draw_common_layout(screen, self.image_dorm, grade)
+        title_color = (255, 255, 255)
+        sub_color = (255, 255, 255)
+        self.draw_common_layout(screen, self.image_dorm, grade, title_color, sub_color)
 
     def ending_retry(self, screen, grade):
-        self.draw_common_layout(screen, self.image_retry, grade, title_text="재수강 확정...", sub_text="BOO는 재수강을 해야합니다.")
+        title_color = (255, 0, 0)
+        sub_color = (255, 0, 0)
+        self.draw_common_layout(screen, self.image_retry, grade, title_color, sub_color, 
+                                title_text="재수강 확정...", 
+                                sub_text="BOO는 재수강을 해야합니다.")
 
     def ending_classroom(self, screen, grade):
         if grade == 4.50: text = "A+"
         elif grade >= 4.00: text = "A0"
         elif grade >= 3.50: text = "B+"
         elif grade >= 3.00: text = "B0"
-        else: text = "C+" # 예외 처리
+        elif grade >= 2.50: text = "C+"
+        elif grade >= 2.00: text = "C0"
+        elif grade >= 1.50: text = "D+"
+        elif grade >= 1.00: text = "D0"
+        else: text = "F"
 
         msg = f"축하합니다. {text}학점을 받았습니다."
-        
-        self.draw_common_layout(screen, self.image_classroom, grade, title_text=msg)
+
+        title_color = (255, 255, 255)
+        sub_color = (255, 255, 255)
+        self.draw_common_layout(screen, self.image_classroom, grade, title_color, sub_color, title_text=msg)
