@@ -2,8 +2,6 @@ import pygame
 from player import *
 from sound import *
 
-#여기에서는 체력 이미지, 학점(숫자), 일시정지, 사운드 on&off, 일시정지 버튼을 맵에 나타내는 것을 적용하고자 함
-
 class UI:
     def __init__(self, screen_width, screen_height):
         self.font = pygame.font.Font("DNFBitBitTTF.ttf", 30)
@@ -18,6 +16,11 @@ class UI:
         self.sound_btn_rect = pygame.Rect(screen_width - 130, 20, 50, 50)
 
         self.item_start_x = screen_width - 130
+
+        self.sound_on_img = pygame.image.load("image/sound_on.png").convert_alpha()
+        self.sound_off_img = pygame.image.load("image/sound_off.png").convert_alpha()
+        self.round = 10  # 버튼 둥글기 정도
+
 
         #일시정지 관련
         #self.overlay = pygame.Surface((screen_width, screen_height), pygame.SRCALPHA)
@@ -43,7 +46,7 @@ class UI:
         screen.blit(self.font.render("HP", True, self.black), (20, 20))
         for i in range(3):
             img = self.hp_full_img if player.hp >= (i+1) else self.hp_empty_img
-            screen.blit(img, (80+(i*60), 20))
+            screen.blit(img, (80+(i*60), 7))
         
         grade_text = f"학점: {player.grade:.2f}"
         grade_surt = self.font.render(grade_text, True, self.black)
@@ -70,26 +73,25 @@ class UI:
             screen.blit(O_stu, (x_o_stu, y))
     
     def _draw_buttons(self, screen, is_paused, sound):
-        #사운드 버튼
-        sound_color = (0, 255, 0) if sound.bgm_on else (100, 100, 100)
-        
-        pygame.draw.rect(screen, sound_color, self.sound_btn_rect)
-        pygame.draw.rect(screen, self.black, self.sound_btn_rect, 3)
-        
-        text_s = self.font.render("S", True, (0,0,0)) 
-        text_s_rect = text_s.get_rect(center=self.sound_btn_rect.center)
-        screen.blit(text_s, text_s_rect)
+        # ---- 사운드 버튼 (둥근 UI) ----
+        pygame.draw.rect(screen, (255,255,255), self.sound_btn_rect, border_radius=self.round)
+        pygame.draw.rect(screen, self.black, self.sound_btn_rect, 3, border_radius=self.round)
 
-        # 일시정지 버튼
+        # 사운드 아이콘
+        icon = self.sound_on_img if sound.bgm_on else self.sound_off_img
+        icon_rect = icon.get_rect(center=self.sound_btn_rect.center)
+        screen.blit(icon, icon_rect)
+
+        # ---- 일시정지 버튼 (둥근 UI) ----
         pause_color = (255, 0, 0) if is_paused else (255, 255, 255)
-        
-        pygame.draw.rect(screen, pause_color, self.pause_btn_rect)
-        pygame.draw.rect(screen, self.black, self.pause_btn_rect, 3)
+        pygame.draw.rect(screen, pause_color, self.pause_btn_rect, border_radius=self.round)
+        pygame.draw.rect(screen, self.black, self.pause_btn_rect, 3, border_radius=self.round)
 
-        symbol = " ▶" if is_paused else "||"
+        symbol = "▶" if is_paused else "||"
         text_p = self.font.render(symbol, True, (0, 0, 0))
         text_p_rect = text_p.get_rect(center=self.pause_btn_rect.center)
         screen.blit(text_p, text_p_rect)
+
     
     def _draw_pause_screen(self, screen):
         dark_overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)

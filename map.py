@@ -1,16 +1,21 @@
 import pygame
 from player import *
-from object import create_random_items
+from object import *
 
-class Map:
-    def __init__(self, window_W, window_H, font_path="DNFBitBitTTF.ttf", map_duration_ms=20000):
+class MapManager:
+    def __init__(self, window_W, window_H, player, ending_ui):
         self.window_W = window_W
         self.window_H = window_H
-        self.duration = map_duration_ms
+        self.duration = 20000
 
-        self.font = pygame.font.Font(font_path, 40)
-        self.font_big = pygame.font.Font(font_path, 80)
 
+        self.items = []
+        self.item_speed = 7
+        self.player = player
+
+        self.ending_ui = ending_ui
+
+        # 이미지 로드
         self.images = {
             "main_building": self._load("image/main_building.png"),
             "library": self._load("image/library.png"),
@@ -22,166 +27,83 @@ class Map:
             "dormitory": self._load("image/dormitory.png")
         }
 
-        # 진행 상태
         self.current_stage = "main_building"
-        self.stage_start_ticks = None
-        self.state = "playing" #playing, ending_classroom, ending_retry, ending_dorm
+        self.state = "playing"
+        self.pending_ending_state = None 
 
-        # 명수당 지속 시간
         self.bonus_duration = 10000
-
-        # 학생회관에서 보너스로 진입했을 때,
-        # 그 시점까지 흐른 시간을 저장하기 위한 변수
-        self.student_elapsed_before_bonus = 0
-        self.entered_bonus = False
-
-        # 엔딩 처리
+        
         from ending import Ending
         self.ending_ui = Ending(window_W, window_H)
-
-        #아이템
-        self.items = []
-        self.item_speed = 7
-
-    def spawn_stage_items(self, stage_name, player):
-        self.items = create_random_items(30, self.item_speed, self.window_W, self.window_H, stage_name, player)
-
+        
+        # 초기 상태 설정
+        self.state_object = MainBuildingState(self) 
+        
+        self.fade_alpha = 0
+        self.is_fading = False
 
     def _load(self, img_path):
-        self.img = pygame.image.load(img_path).convert_alpha()
-        return self.img
-    
-    def reset(self):
-        self.current_stage = "main_building"
-        self.stage_start_ticks = None
-        self.state = "playing"
+        return pygame.image.load(img_path).convert_alpha()
 
-        self.entered_bonus = False
-        
-        self.ending_start_ticks = None
+    def spawn_stage_items(self, stage_name, player):
+        items = StageItem()
+        self.items = items.create_items(30, self.item_speed, self.window_W, self.window_H, stage_name, player)
 
-    # 맵 진행 로직
-    def update(self, player):
-        if self.state != "playing":
-            return
+    # 상태 변경 시 current_stage 문자열도 변경됨
+    def change_state(self, new_state_object):
+        self.state_object = new_state_object
+        self.current_stage = new_state_object.name 
+
+    def trigger_fade_out(self, ending_key):
+        self.pending_ending_state = ending_key
+        self.is_fading = True
+        self.fade_alpha = 0
+
+    def update(self, player, paused_time):
+        if self.is_fading or not self.is_playing:
+            return 
         
-        # HP 0 → 도미토리 엔딩
         if player.hp <= 0:
-            # 엔딩 들어가기 전에 BEST 갱신
             self.ending_ui.update_best_grade(player.grade)
-            self.state = "ending_dorm"
+            self.trigger_fade_out("ending_dorm")
             return
-
-        now = pygame.time.get_ticks()
-
-        if self.stage_start_ticks is None:
-            self.stage_start_ticks = now
-
-        elapsed = now - self.stage_start_ticks
-
-        # 백년관 
-        if self.current_stage == "main_building":
-            if elapsed >= self.duration:
-                self.current_stage = "library"
-                self.stage_start_ticks = now
-
-                self.spawn_stage_items("library", player)
-
-        # ------ 도서관 ------
-        elif self.current_stage == "library":
-            if elapsed >= self.duration:
-                self.current_stage = "student_hall"
-                self.stage_start_ticks = now
-
-                self.spawn_stage_items("student_hall", player)
-
-        # ------ 학생회관 ------
-        elif self.current_stage == "student_hall":
-            # B/O/O 모두 모으면 명수당
-            # 1) 명수당 진입 조건
-            #    (학생회관에서 O를 먹는 순간 = have_O_stu True)
-
-            #학생회관에 있던 도중 명수당으로 이동하면 어떻게 되는지?
-            if (player.have_B and player.have_O_lib and player.have_O_stu and not self.entered_bonus):
-
-                 # 지금까지 학생회관에서 흘렀던 시간 저장
-                self.student_elapsed_before_bonus = elapsed
-
-                # 명수당으로 이동
-                self.current_stage = "bonus"
-                self.stage_start_ticks = now
-                self.entered_bonus = True
-
-                # 부 날기 모드
-                player.set_fly_mode()
-
-                self.spawn_stage_items("bonus", player)
-
-            # 2) 학생회관 20초가 모두 지났을 때 → 학점 판정
-            elif elapsed >= self.duration:
-                # 학생회관까지 끝난 시점 기준으로 BEST 갱신
-                self.ending_ui.update_best_grade(player.grade)
-
-                if player.grade <= 2.50:
-                    # 2.50 미만 → 재수강 엔딩
-                    self.state = "ending_retry"
-                else:
-                    # 2.50 이상 → 교양관 이동
-                    self.current_stage = "liberal_arts_building"
-                    self.stage_start_ticks = now
-
-                    player.set_boo_mode()
-
-                    self.spawn_stage_items("liberal_arts_building", player)
-
-
-        # 명수당 (보너스 맵, 10초)
-        #   - 학생회관 시간은 멈춘 상태
-        #   - 10초 후 다시 학생회관으로 돌아가서
-        #     멈춰 있었던 시간부터 다시 진행
-        elif self.current_stage == "bonus":
-
-            if elapsed >= self.bonus_duration:
-                # 부 다시 달리기 모드
-                player.set_boo_mode()
-
-                # 학생회관으로 복귀
-                self.current_stage = "student_hall"
-
-                # 학생회관 타이머를 "멈췄던 시점"으로 복구
-                #   elapsed_student = now - stage_start_ticks = 저장된 값
-                self.stage_start_ticks = now - self.student_elapsed_before_bonus
-
-                # 학생회관 아이템 다시 생성 (원하면 생략 가능)
-                self.spawn_stage_items("student_hall", player)
-
-
-        # 교양관 → 20초 버티면 강의실 클리어 엔딩
-        #   (재수강 여부는 이미 학생회관에서 판정 끝)
-        elif self.current_stage == "liberal_arts_building":
-
-            if elapsed >= self.duration:
-                self.ending_ui.update_best_grade(player.grade)
-                self.state = "ending_classroom"
-                self.ending_start_ticks = pygame.time.get_ticks()
-
+            
+        if self.state == "playing":
+            self.state_object.update(player, paused_time)
 
     def draw(self, screen, player):
-        # 플레이 중이면 현재 맵만 출력
-        if self.state == "playing":
+        # 1. 페이드 중일 때
+        if self.is_fading:
+            # 페이드 중에는 현재 멈춘 화면(current_stage)을 그림
             screen.blit(self.images[self.current_stage], (0, 0))
-            return
 
-        # 엔딩
-        if self.state == "ending_retry":
+            fade_surface = pygame.Surface((self.window_W, self.window_H))
+            fade_surface.fill((0, 0, 0))
+            fade_surface.set_alpha(self.fade_alpha)
+            screen.blit(fade_surface, (0, 0))
+
+            if self.fade_alpha < 255:
+                self.fade_alpha += 8
+            else:
+                self.is_fading = False
+                # 실제 엔딩 상태로 전환
+                if self.pending_ending_state:
+                    self.state = self.pending_ending_state
+                    self.pending_ending_state = None
+
+        # 2. 게임 플레이 중일 때
+        elif self.state == "playing":
+            self.state_object.draw(screen)
+
+        # 3. 엔딩 화면일 때
+        elif self.state == "ending_retry":
             self.ending_ui.ending_retry(screen, player.grade)
-        
+
         elif self.state == "ending_dorm":
             self.ending_ui.ending_dorm(screen, player.grade)
 
         elif self.state == "ending_classroom":
             self.ending_ui.ending_classroom(screen, player.grade)
-
 
     @property
     def is_playing(self):
@@ -190,3 +112,116 @@ class Map:
     @property
     def is_finished(self):
         return self.state != "playing"
+
+class MapState:
+    def __init__(self, game_map):
+        self.game_map = game_map
+        self.start_ticks = None
+        self.name = "main_building"
+
+        self.paused_time = 0
+        self.pause_start_time = 0
+        self.is_paused = False
+
+    def update(self, player, paused_time):
+        pass
+
+    def draw(self, screen):
+        screen.blit(self.game_map.images[self.name], (0, 0))
+
+class MainBuildingState(MapState):
+    def __init__(self, game_map):
+        super().__init__(game_map)
+        self.name = "main_building"
+        self.start_ticks = None
+        self.game_map.spawn_stage_items(self.name, self.game_map.player) 
+
+    def update(self, player, paused_time):
+        if self.start_ticks is None:
+            self.start_ticks = pygame.time.get_ticks() - paused_time
+
+        elapsed = pygame.time.get_ticks() - self.start_ticks - paused_time
+        
+        if elapsed >= self.game_map.duration:
+            self.game_map.change_state(LibraryState(self.game_map))
+
+class LibraryState(MapState):
+    def __init__(self, game_map):
+        super().__init__(game_map)
+        self.name = "library"
+        self.start_ticks = None
+        self.game_map.spawn_stage_items(self.name, self.game_map.player) 
+
+    def update(self, player, paused_time):
+        if self.start_ticks is None:
+            self.start_ticks = pygame.time.get_ticks() - paused_time
+
+        elapsed = pygame.time.get_ticks() - self.start_ticks - paused_time
+
+        if elapsed >= self.game_map.duration:
+            self.game_map.change_state(StudentHallState(self.game_map))
+
+class StudentHallState(MapState):
+    def __init__(self, game_map):
+        super().__init__(game_map)
+        self.name = "student_hall"
+        self.entered_bonus = False
+        self.start_ticks = None
+        self.game_map.spawn_stage_items(self.name, self.game_map.player) 
+
+    def update(self, player, paused_time):
+        if self.start_ticks is None:
+            self.start_ticks = pygame.time.get_ticks() - paused_time
+
+        elapsed = pygame.time.get_ticks() - self.start_ticks - paused_time
+
+        if player.have_B and player.have_O_lib and player.have_O_stu and not self.entered_bonus:
+            self.game_map.change_state(BonusState(self.game_map, elapsed))
+            player.set_fly_mode()
+            return
+
+        if elapsed >= self.game_map.duration:
+            player.set_boo_mode()
+            self.game_map.change_state(LiberalArtsState(self.game_map))
+
+class LiberalArtsState(MapState):
+    def __init__(self, game_map):
+        super().__init__(game_map)
+        self.name = "liberal_arts_building"
+        self.start_ticks = None 
+        self.game_map.spawn_stage_items(self.name, self.game_map.player) 
+
+    def update(self, player, paused_time):
+        if self.start_ticks is None:
+            self.start_ticks = pygame.time.get_ticks() - paused_time
+
+        elapsed = pygame.time.get_ticks() - self.start_ticks - paused_time
+
+        if elapsed >= self.game_map.duration:
+            self.game_map.ending_ui.update_best_grade(player.grade)
+            if player.grade <= 2.50:
+                self.game_map.trigger_fade_out("ending_retry")
+            else:
+                self.game_map.trigger_fade_out("ending_classroom")
+
+class BonusState(MapState):
+    def __init__(self, game_map, previous_elapsed):
+        super().__init__(game_map)
+        self.name = "bonus"
+        self.previous_elapsed = previous_elapsed
+        self.start_ticks = None
+        self.game_map.spawn_stage_items(self.name, self.game_map.player) 
+
+    def update(self, player, paused_time):
+        if self.start_ticks is None:
+            self.start_ticks = pygame.time.get_ticks() - paused_time
+
+        elapsed = pygame.time.get_ticks() - self.start_ticks - paused_time
+        
+        if elapsed >= self.game_map.bonus_duration:
+             next_state = StudentHallState(self.game_map)
+             next_state.entered_bonus = True
+             
+             self.game_map.change_state(next_state)
+
+             player.set_boo_mode()

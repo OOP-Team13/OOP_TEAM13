@@ -28,13 +28,6 @@ class SoundManager:
         except:
             print("item.wav 파일을 찾을 수 없습니다.")
 
-
-        try:
-            self.hit_sound = pygame.mixer.Sound("sound/hit.wav")
-            self.hit_sound.set_volume(0.7)
-        except:
-            print("hit.wav 파일을 찾을 수 없습니다.")
-
     def play_bgm(self):
         if self.bgm_on:
             pygame.mixer.music.play(-1)
@@ -53,20 +46,6 @@ class SoundManager:
             self.item_sound.play()
         except:
             pass
-
-    def play_hit(self):
-        try:
-            self.hit_sound.play()
-        except:
-            pass
-
-    def toggle_bgm(self):
-        if self.bgm_on:
-            pygame.mixer.music.pause()
-            self.bgm_on = False
-        else:
-            pygame.mixer.music.unpause()
-            self.bgm_on = True
 
     def quit(self):
         pygame.mixer.stop()
